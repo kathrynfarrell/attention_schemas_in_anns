@@ -24,7 +24,7 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
         return x
     keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1) 
     random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
     random_tensor.floor_()  # binarize
     output = x.div(keep_prob) * random_tensor
@@ -129,7 +129,6 @@ class VitAttentionSchema(nn.Module):
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
 
-        # h2_dim the dimension of h2
         h2_dim = 200
         act_supp_dim = num_heads*(num_patches+1)
 
@@ -284,112 +283,3 @@ class VitControl(nn.Module):
       x = self.prepare_tokens(x)
       _, attn_score, _ = self.attention(self.norm1(x))
       return attn_score
-
-# MULTI AGENT NETWORKS
-# Vit Agents
-class MultiAgentVit(nn.Module):
-  def __init__(self, n_agents, n_agent_outputs, schema,
-      img_size=[256], in_chans=3, critic=False):
-    super().__init__()
-    self.n_agents = n_agents
-    self.critic = critic
-    self.schema = schema
-
-    if schema:
-      self.networks = nn.ModuleList(
-          [VitAttentionSchema(
-            img_size=img_size,
-            in_chans=in_chans,
-            policy_dim=n_agent_outputs)
-
-          for i in range(n_agents)]
-          )
-    else:
-      self.networks = nn.ModuleList(
-          [VitControl(
-            img_size=img_size,
-            in_chans=in_chans,
-            policy_dim=n_agent_outputs)
-
-          for i in range(n_agents)]
-          )
-
-  # the way we shape outputs/inputs depends on whether the common
-  # module is working for the actor or the critic.
-
-  def forward(self, *inputs):
-    if len(inputs) == 1:
-      inputs = inputs[0]
-      if len(inputs.shape) > 4:
-        inputs = inputs.squeeze()
-    responses = []
-    pred_attns = []
-    h1ms = []
-    # in: [n_envs, field + player channels, w, h]
-    for i, net in enumerate(self.networks):
-
-      if self.schema:
-        pred_attn, h1m, response = net(inputs)
-        pred_attns.append(pred_attn[:, 0, :])
-        h1ms.append(h1m[:, 0, :])
-      else:
-        _, response = net(inputs)
-      n_envs, output_dim = response.shape
-      field_dim = int(math.sqrt(output_dim/2))
-      response = response.reshape(n_envs,
-          field_dim, field_dim*2)
-
-      responses.append(response)
-
-    if self.schema:
-      # out: [n_envs, n_agents, field_dim, field_dim*2]
-      # print("returning h1m "+str(torch.stack(h1ms, dim=1).shape)+", pred_attns "+str(torch.stack(pred_attns, dim=1).shape)+" responses " + str(torch.stack(responses, dim=1).shape))
-      return torch.stack(h1ms, dim=1), torch.stack(pred_attns, dim=1), torch.stack(responses, dim=1)
-    else:
-      # control does not return predicted and actual attns
-      return torch.stack(responses, dim=1)
-
-# Mlp Agents
-class MultiAgentMlp(nn.Module):
-  def __init__(self, n_agents, n_agent_outputs, field_dim, n_envs=1, action_logits=False, from_observation=False):
-    super().__init__()
-    self.n_envs = n_envs
-    self.n_agents = n_agents
-    self.field_dim = field_dim
-    self.action_logits = action_logits
-    self.from_observation = from_observation
-    if not from_observation:
-      in_features = (2*field_dim**2)
-    else:
-      in_features = (field_dim**2)
-    self.networks = nn.ModuleList(
-        [Mlp(
-          in_features=in_features,
-          out_features=n_agent_outputs)
-
-          for i in range(n_agents)]
-          )
-
-  def forward(self, *inputs):
-    if len(inputs) == 1:
-      inputs = inputs[0]
-      # print("mlp sees "+str(inputs.shape))
-      inputs = torch.flatten(inputs, start_dim=-2)
-      # print("running mlp on "+str(inputs.shape))
-    responses = []
-    # in: [..., n_agents, flattened field info]
-    for i, net in enumerate(self.networks):
-      response = net(inputs[..., i, :])
-      if self.action_logits:
-        response = response.view(*response.shape[:-1], self.field_dim, self.field_dim,2)
-      responses.append(response)
-    # out: [n_envs, n_agents, 1, 1, 1] if not making action logits
-    if not self.action_logits:
-      output = torch.stack(responses, dim=-2).unsqueeze(-1).unsqueeze(-1)
-      if len(output.shape) > 4:
-        output = output.squeeze(-5)
-    # [n_envs, n_agents, fd, fd, 2] for action logits
-    else:
-      output = torch.stack(responses, dim=1)
-    # print("mlp returns "+str(output.shape))
-    return output

@@ -23,7 +23,7 @@ def drop_path(x, drop_prob: float = 0., training: bool = False):
     if drop_prob == 0. or not training:
         return x
     keep_prob = 1 - drop_prob
-    shape = (x.shape[0],) + (1,) * (x.ndim - 1)  # work with diff dim tensors, not just 2D ConvNets
+    shape = (x.shape[0],) + (1,) * (x.ndim - 1) 
     random_tensor = keep_prob + torch.rand(shape, dtype=x.dtype, device=x.device)
     random_tensor.floor_()  # binarize
     output = x.div(keep_prob) * random_tensor
@@ -128,7 +128,6 @@ class VitAttentionSchema(nn.Module):
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
 
-        # h2_dim the dimension of h2
         h2_dim = 200
         act_supp_dim = num_heads*(num_patches+1)
 
@@ -340,7 +339,6 @@ class MultiAgentVit(nn.Module):
 
     if self.schema:
       # out: [n_envs, n_agents, field_dim, field_dim*2]
-      # print("returning h1m "+str(torch.stack(h1ms, dim=1).shape)+", pred_attns "+str(torch.stack(pred_attns, dim=1).shape)+" responses " + str(torch.stack(responses, dim=1).shape))
       return torch.stack(h1ms, dim=1), torch.stack(pred_attns, dim=1), torch.stack(responses, dim=1)
     else:
       # control does not return predicted and actual attns
